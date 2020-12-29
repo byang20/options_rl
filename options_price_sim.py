@@ -45,7 +45,6 @@ def passed_arguments():
 
 
 
-
 '''
 Function that simulates one realized path
 t - time to maturity
@@ -64,6 +63,9 @@ def round(t, r, sigma, start,days):
             st_s[i+1] = st_s[i] + st_s[i] * r / days + st_s[i] * sigma_daily * rands[i]
     return st_s
 
+'''
+Function that simulates specified number of paths, returns call and put values
+'''
 def run_sim(t, runs, r, sigma, start,days, K):
     prices = np.zeros((runs,t*days+1))
     for i in range(runs):
