@@ -15,6 +15,7 @@ def passed_arguments():
     parser.add_argument("--spot_price", type=float, required=True,help="spot price, St")
     parser.add_argument("--strike_price", type=float, required=True, help="strike price, K")
     parser.add_argument("--sigma", type=float, required=True, help="sigma")
+    parser.add_argument("--tpd", type = float, required=True, help='Times per day, tpd')
     args = parser.parse_args()
     return args
 
@@ -103,8 +104,8 @@ def sim(t, r, rf, sigma, start,days, k):
 
     #pnl
     d_s = (st_s[1:] - st_s[:-1])
-    pnl[0] = -1 * np.sum(d_s*deltas[1:,0])
-    pnl[1] = -1 * np.sum(d_s*deltas[1:,1])
+    pnl[0] = -1 * np.sum(d_s*deltas[:-1,0])
+    pnl[1] = -1 * np.sum(d_s*deltas[:-1,1])
 
     #cash
     total_cf = np.zeros((len(cf),2))
@@ -191,8 +192,9 @@ def black_scholes_form(t, k, s_t, r, sigma, days):
 def get_pv_sim(value, r, t ):
     return value/((1+r)**(t))
 
-def main(sim_cnt, r, rf, T, s_t, k, sigma):
-    days = 260
+def main(sim_cnt, r, rf, T, s_t, k, sigma, tpd):
+    
+    days = int(260 * tpd)
     
     v_c, v_p, cf_total, pnl_total, po_c, po_p, shares, s_T, op_price, cash_avg = run_sim(T, sim_cnt, r, rf, sigma , s_t, days, k) 
     pv_c= get_pv_sim(v_c ,rf, T)
@@ -209,10 +211,12 @@ def main(sim_cnt, r, rf, T, s_t, k, sigma):
 
     c, p, d1, d2 = black_scholes_form(T, k, s_t, rf, sigma, days)
     
-    print('                call                 put')
-    print('black-scholes: ', c,  ';', p)
-    print('          sim: ', pv_c,';', pv_p)
-    #print('          pnl: ', pnl_total[0],';', pnl_total[1])
+    print('                     call                 put')
+    print('    black-scholes: ', c,  ';', p)
+    print('  expected payoff: ', pv_c,';', pv_p)
+    print('delta hedging pnl: ', pnl_total[0],';', pnl_total[1])
+    print('       difference: ', c-pv_c, ';', p-pv_p)
+
 
 
 if __name__ == '__main__':
@@ -224,5 +228,6 @@ if __name__ == '__main__':
     spot_price = args.spot_price
     strike_price = args.strike_price
     sigma = args.sigma
-    main(sim_cnt, r, rf, mat,spot_price,strike_price, sigma)
+    tpd = args.tpd
+    main(sim_cnt, r, rf, mat,spot_price,strike_price, sigma, tpd)
     
