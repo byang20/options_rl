@@ -103,8 +103,8 @@ def sim(t, r, rf, sigma, start,days, k):
 
     #pnl
     d_s = (st_s[1:] - st_s[:-1])
-    pnl[0] = -1 * np.sum(d_s*deltas[1:,0])
-    pnl[1] = -1 * np.sum(d_s*deltas[1:,1])
+    pnl[0] = -1 * np.sum(d_s*deltas[:-1,0])
+    pnl[1] = -1 * np.sum(d_s*deltas[:-1,1])
 
     #cash
     total_cf = np.zeros((len(cf),2))
@@ -146,7 +146,7 @@ def run_sim(t, runs, r, rf, sigma, start,days, K):
 
     header = '{:>7s}{:>7s}{:>7s}{:>7s}{:>7s}'.format('s_T', 'net_c','net_p', 'bs_c', 'bs_p')
     cp = os.path.abspath(os.getcwd())
-    np.savetxt(os.path.join(cp, 'data.csv'), stats, delimiter=',' )
+    np.savetxt(os.path.join(cp, 'data_1.csv'), stats, delimiter=',' )
     print(header)
     #for i in range(runs):
         #string = '{:>7.2f}{:>7.2f}{:>7.2f}{:>7.2f}{:>7.2f}'.format(stats[i][0],stats[i][1],stats[i][2],stats[i][3],stats[i][4]) 
@@ -192,27 +192,27 @@ def get_pv_sim(value, r, t ):
     return value/((1+r)**(t))
 
 def main(sim_cnt, r, rf, T, s_t, k, sigma):
-    days = 260
+    days = 520
     
     v_c, v_p, cf_total, pnl_total, po_c, po_p, shares, s_T, op_price, cash_avg = run_sim(T, sim_cnt, r, rf, sigma , s_t, days, k) 
     pv_c= get_pv_sim(v_c ,rf, T)
     pv_p= get_pv_sim(v_p ,rf, T)
 
-    '''
+    
     print('op: ', op_price)
     print('cf:  ', cf_total)
     print('cash avg: ', cash_avg)
     print('pnl: ', pnl_total)
-    '''
+    
     #print('Call Sum: ', shares[0][0]*s_T + po_c + pnl_total[0]+cf_total[0] + pv_c)
     #print('Put Sum:  ', shares[0][1]*s_T + po_p + pnl_total[1]+cf_total[1] + pv_p )
 
     c, p, d1, d2 = black_scholes_form(T, k, s_t, rf, sigma, days)
     
-    print('                call                 put')
-    print('black-scholes: ', c,  ';', p)
-    print('          sim: ', pv_c,';', pv_p)
-    #print('          pnl: ', pnl_total[0],';', pnl_total[1])
+    print('                  call                 put')
+    print('  black-scholes: ', c,  ';', p)
+    print('      E[payoff]: ', pv_c,';', pv_p)
+    print('delta hedge pnl: ', pnl_total[0],';', pnl_total[1])
 
 
 if __name__ == '__main__':
