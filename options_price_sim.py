@@ -67,17 +67,18 @@ start - start price
 '''
 def sim(t, r, rf, sigma, start,days, k):
 
-    mu = 0
-    s = 1
+    mu, s = 0, 1
     sigma_daily = sigma / math.sqrt(days)
     rands = np.random.normal(mu, s, t*days)
+
     st_s = np.zeros(t*days)
     st_s[0] = start
-    deltas = np.zeros((t*days,2))
 
+    deltas = np.zeros((t*days,2))
     d1 = 1/(sigma_daily*math.sqrt(t)) * (math.log(start/k) + (r/days + (sigma_daily**2)/2) * t)
     d2 = d1 - sigma_daily*(math.sqrt(t))
     deltas[0] = get_greeks(t, k, r/days, sigma_daily, d1, d2, start, only_delta=True)
+
     cf = np.zeros((t*days,2))
     pnl = np.zeros(2)
     cash = np.zeros(2)
@@ -93,14 +94,13 @@ def sim(t, r, rf, sigma, start,days, k):
         deltas[i] = get_greeks(term_t, k, r/days, sigma_daily, d1, d2, st_s[i], only_delta=True)
 
     #cash flows
-    c, p, _, _ = black_scholes_form(t, k, st_s[0], rf, sigma, days)
+    c, p, _, _ = black_scholes_form(t, k, st_s[0], rf, sigma)
     d_deltas = deltas[1:,:]-deltas[:-1,:]
     cf[0] = np.array([c, p])
     cf[0][0] += -1 * deltas[0][0] * start 
     cf[0][1] += -1 * deltas[0][1] * start 
     cf[1:,0] = -1 * st_s[1:]*d_deltas[:,0]
     cf[1:,1] = -1 * st_s[1:]*d_deltas[:,1]
-    #cf[-1] += k * deltas[-1]
 
     #pnl
     d_s = (st_s[1:] - st_s[:-1])
@@ -176,7 +176,7 @@ s_t = spot price
 r - risk free rate
 sigma - volatilities over t
 '''
-def black_scholes_form(t, k, s_t, r, sigma, days):
+def black_scholes_form(t, k, s_t, r, sigma):
 
     d1 = 1/(sigma*math.sqrt(t)) * (math.log(s_t/k) + (r + (sigma**2)/2) * t)
     d2 = d1 - sigma*(math.sqrt(t))
@@ -184,8 +184,6 @@ def black_scholes_form(t, k, s_t, r, sigma, days):
 
     c = norm.cdf(d1) * s_t - norm.cdf(d2) * pv
     p = -1 * norm.cdf(-d1) * s_t  + norm.cdf(-d2) * pv
-
-    #g_c, g_p = get_greeks(t, k, r, sigma, d1, d2, s_t)
     
     return c, p, d1, d2
 
@@ -209,7 +207,7 @@ def main(sim_cnt, r, rf, T, s_t, k, sigma, tpd):
     #print('Call Sum: ', shares[0][0]*s_T + po_c + pnl_total[0]+cf_total[0] + pv_c)
     #print('Put Sum:  ', shares[0][1]*s_T + po_p + pnl_total[1]+cf_total[1] + pv_p )
 
-    c, p, d1, d2 = black_scholes_form(T, k, s_t, rf, sigma, days)
+    c, p, d1, d2 = black_scholes_form(T, k, s_t, rf, sigma)
     
     print('                     call                 put')
     print('    black-scholes: ', c,  ';', p)
