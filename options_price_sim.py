@@ -57,7 +57,6 @@ def get_greeks(t, k, r, sigma, d1, d2, s, only_delta=False):
 
         return (delta_c, gamma, vega, theta_c),(delta_p, gamma, vega, theta_p)
 
-
 '''
 Function that simulates one realized path
 t - time to maturity
