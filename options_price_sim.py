@@ -15,7 +15,8 @@ def passed_arguments():
     parser.add_argument("--spot_price", type=float, required=True,help="spot price, St")
     parser.add_argument("--strike_price", type=float, required=True, help="strike price, K")
     parser.add_argument("--sigma", type=float, required=True, help="sigma")
-    parser.add_argument("--tpd", type = float, required=True, help='Times per day, tpd')
+    parser.add_argument("--tpd", type = float, default=1, help='Times per day, tpd')
+    parser.add_argument('--q', nargs='?', const=0, type=float, default=0, help='Dividend yield')
     args = parser.parse_args()
     return args
 
@@ -28,33 +29,37 @@ Function that calculates 'the greeks'
 If only_delta=True returns: (delta_c), (delta_p)
 Else returns: (delta_c, gamma, vega, theta_c),(delta_p, gamma, vega, theta_p)
 '''
-def get_greeks(t, k, r, sigma, d1, d2, s, only_delta=False):
+def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False):
     cdf_d1 = norm.cdf(d1)
 
     if only_delta:
-        delta_c = cdf_d1
-        delta_p = delta_c-1
+        delta_c = cdf_d1 * math.exp(-q*t)
+        delta_p = (delta_c-1) * math.exp(-q*t)
         return np.array([delta_c, delta_p])
 
     else:
-        n_prime_d1 = n_prime(d1)
+        n_prime_d1 = n_prime(d1) 
         n_prime_d2 = n_prime(d2)
         cdf_d2 = norm.cdf(d2)
         neg_cdf_d2 = norm.cdf(-1*d2)
             
         #delta calculations
-        delta_c = cdf_d1
-        delta_p = delta_c-1
+        delta_c = cdf_d1 * math.exp(-q*t)
+        delta_p = delta_c-math.exp(-q*t)
 
         #gamma calculations
-        gamma = n_prime_d1 / (s * sigma * math.sqrt(t))
+        gamma = n_prime_d1 / (s * sigma * math.sqrt(t)) * math.exp(-q*t)
 
         #vega calculations
-        vega = s * n_prime_d1 * math.sqrt(t)
+        vega = s * n_prime_d1 * math.sqrt(t) * math.exp(-q*t)
 
         #theta calculations
-        theta_c = -1*((s*n_prime_d1) * sigma)/(2*(t**.5)) - r*k*math.exp(-r * t) * cdf_d2
-        theta_p = -1*((s*n_prime_d1) * sigma)/(2*(t**.5)) + r*k*math.exp(-r * t) * neg_cdf_d2
+        #theta_c = -1*((s*n_prime_d1) * sigma)/(2*(t**.5)) - r*k*math.exp(-r * t) * cdf_d2 
+        #theta_p = (-1*((s*n_prime_d1) * sigma)/(2*(t**.5)) + r*k*math.exp(-r * t) * neg_cdf_d2) 
+
+        theta_c = -1*(s * n_prime_d1 * sigma * math.exp(-q*t))/(2*(t**.5)) - r*k*math.exp(-r * t) * cdf_d2 + q*s*math.exp(-q*t)*cdf_d1
+        theta_p = -1*(s * n_prime_d1 * sigma * math.exp(-q*t))/(2*(t**.5)) + r*k*math.exp(-r * t) * neg_cdf_d2 - q*s*math.exp(-q*t)*(1-cdf_d1)
+
 
         return (delta_c, gamma, vega, theta_c),(delta_p, gamma, vega, theta_p)
 
@@ -65,7 +70,7 @@ r - stock return drift
 v - volatility
 start - start price
 '''
-def sim(t, r, rf, sigma, start,days, k):
+def sim(t, r, rf, sigma, start,days, k, q):
 
     mu, s = 0, 1
     sigma_daily = sigma / math.sqrt(days)
@@ -75,32 +80,28 @@ def sim(t, r, rf, sigma, start,days, k):
     st_s[0] = start
 
     deltas = np.zeros((t*days,2))
-    d1 = 1/(sigma_daily*math.sqrt(t)) * (math.log(start/k) + (r/days + (sigma_daily**2)/2) * t)
+    d1 = 1/(sigma_daily*math.sqrt(t)) * (math.log(start/k) + ((r-q)/days + (sigma_daily**2)/2) * t)
     d2 = d1 - sigma_daily*(math.sqrt(t))
-    deltas[0] = get_greeks(t, k, r/days, sigma_daily, d1, d2, start, only_delta=True)
+    deltas[0] = get_greeks(t, k, r/days, sigma_daily, d1, d2, start, q, only_delta=True)
 
     cf = np.zeros((t*days,2))
-    pnl = np.zeros(2)
-    cash = np.zeros(2)
-    net = np.zeros(2)
-
+    pnl, cash, net = np.zeros(2), np.zeros(2), np.zeros(2)
 
     for i in range(1,days*t):
-        st_s[i] = st_s[i-1] + st_s[i-1] * r / days + st_s[i-1] * sigma_daily * rands[i-1]
+        st_s[i] = st_s[i-1] + st_s[i-1] * (r-q) / days + st_s[i-1] * sigma_daily * rands[i-1]
         term_t = t-i/days
-        d1 = 1/(sigma_daily*math.sqrt(term_t)) * (math.log(st_s[i]/k) + (r/days + (sigma_daily**2)/2) * term_t)
+        d1 = 1/(sigma_daily*math.sqrt(term_t)) * (math.log(st_s[i]/k) + ((r-q)/days + (sigma_daily**2)/2) * term_t)
         d2 = d1 - sigma_daily*(math.sqrt(term_t))
-
-        deltas[i] = get_greeks(term_t, k, r/days, sigma_daily, d1, d2, st_s[i], only_delta=True)
+        deltas[i] = get_greeks(term_t, k, r/days, sigma_daily, d1, d2, st_s[i], q, only_delta=True)
 
     #cash flows
-    c, p, _, _ = black_scholes_form(t, k, st_s[0], rf, sigma)
+    c, p, _, _ = black_scholes_form(t, k, st_s[0], rf, sigma,q)
     d_deltas = deltas[1:,:]-deltas[:-1,:]
     cf[0] = np.array([c, p])
     cf[0][0] += -1 * deltas[0][0] * start 
     cf[0][1] += -1 * deltas[0][1] * start 
-    cf[1:,0] = -1 * st_s[1:]*d_deltas[:,0]
-    cf[1:,1] = -1 * st_s[1:]*d_deltas[:,1]
+    cf[1:,0]  = -1 * st_s[1:]*d_deltas[:,0]
+    cf[1:,1]  = -1 * st_s[1:]*d_deltas[:,1]
 
     #pnl
     d_s = (st_s[1:] - st_s[:-1])
@@ -112,56 +113,37 @@ def sim(t, r, rf, sigma, start,days, k):
     total_cf[0] = cf[0] 
     for i in range(1,len(cf)):
         total_cf[i] = total_cf[i-1]*math.exp(rf/days) + cf[i]
-
     cash = total_cf[-1]
 
     #net
-    #print('inial option price: ', np.array([c, p]))
-    
-    #print('call option net comp: ', cash[0], deltas[-1][0]*st_s[-1] , -1 * max(st_s[-1] - k, 0)  )
-    #print('put option net comp:  ', cash[1], deltas[-1][1]*st_s[-1] , -1 * max(k-st_s[-1] , 0)  )
-    net[0] = cash[0] +  deltas[-1][0]*st_s[-1] + -1 * max(st_s[-1] - k, 0) 
-    net[1] = cash[1] + deltas[-1][1]*st_s[-1]  + -1 * max(k-st_s[-1] , 0)  
-    #print(deltas[-1])
-    #print('net: ', net)
+    net[0] = cash[0] + deltas[-1][0]*st_s[-1] + -1 * max(st_s[-1]-k, 0) 
+    net[1] = cash[1] + deltas[-1][1]*st_s[-1] + -1 * max(k-st_s[-1] , 0)  
 
     stat = np.array([round(st_s[-1],2), round(net[0],2), round(net[1],2), round(c,2) ,round(p,2)]) 
-    
-    #string = '{:>7.2f}{:>7.2f}{:>7.2f}{:>7.2f}{:>7.2f}'.format(round(st_s[-1],2), round(net[0],2), round(net[1],2), round(c,2) ,round(p,2) )
-    #print('\n',string )
 
     return st_s, np.sum(cf,axis=0), pnl, deltas[-1, :], cash, net, stat
 
-def run_sim(t, runs, r, rf, sigma, start,days, K):
+def run_sim(t, runs, r, rf, sigma, start,days, K,q):
     prices = np.zeros((runs,t*days))
-    cf = np.zeros((runs,2))
-    pnl = np.zeros((runs,2))
-    shares = np.zeros((runs,2))
-    cash = np.zeros((runs,2))
-    net = np.zeros((runs, 2))
+    cf, pnl, shares, cash, net = np.zeros((runs,2)), np.zeros((runs,2)), np.zeros((runs,2)), np.zeros((runs,2)), np.zeros((runs,2))
     stats = np.zeros((runs,5))
 
     
     for i in range(runs):
-        prices[i,:],cf[i,:], pnl[i,:], shares[i,:], cash[i:], net, stats[i,:]= sim(t, r, rf, sigma, start, days, K)
+        prices[i,:],cf[i,:], pnl[i,:], shares[i,:], cash[i:], net, stats[i,:]= sim(t, r, rf, sigma, start, days, K, q)
 
-    header = '{:>7s}{:>7s}{:>7s}{:>7s}{:>7s}'.format('s_T', 'net_c','net_p', 'bs_c', 'bs_p')
+    #header = '{:>7s}{:>7s}{:>7s}{:>7s}{:>7s}'.format('s_T', 'net_c','net_p', 'bs_c', 'bs_p')
     cp = os.path.abspath(os.getcwd())
     np.savetxt(os.path.join(cp, 'data_1.csv'), stats, delimiter=',' )
-    print(header)
-    #for i in range(runs):
-        #string = '{:>7.2f}{:>7.2f}{:>7.2f}{:>7.2f}{:>7.2f}'.format(stats[i][0],stats[i][1],stats[i][2],stats[i][3],stats[i][4]) 
-        #print('\n',string )
 
     value_c = np.sum(np.clip(prices[:,-1]-K, a_min=0, a_max=None))/runs
     value_p = np.sum(np.clip(K-prices[:,-1], a_min=0, a_max=None))/runs
-    cf_total = np.sum(cf, axis = 0)/runs
+    cf_total  = np.sum(cf, axis = 0)/runs
     pnl_total = np.sum(pnl, axis = 0)/ runs
-    cash_avg = np.sum(cash, axis=0)/runs
+    cash_avg  = np.sum(cash, axis=0)/runs
     un_cost = np.dstack((K-prices[:,-1], prices[:,-1]-K))
     
     op_price =  pnl_total + cf_total + np.sum(un_cost, axis=1)/runs
-    #print(np.sum(un_cost, axis=1)/runs)
 
     po_c = -1*np.clip(prices[:,-1]-K, a_min=0, a_max=None)
     po_p = -1*np.clip(K-prices[:,-1], a_min=0, a_max=None)
@@ -176,14 +158,15 @@ s_t = spot price
 r - risk free rate
 sigma - volatilities over t
 '''
-def black_scholes_form(t, k, s_t, r, sigma):
+def black_scholes_form(t, k, s_t, rf, sigma, q):
 
-    d1 = 1/(sigma*math.sqrt(t)) * (math.log(s_t/k) + (r + (sigma**2)/2) * t)
+    d1 = 1/(sigma*math.sqrt(t)) * (math.log(s_t/k) + (rf-q + (sigma**2)/2) * t)
     d2 = d1 - sigma*(math.sqrt(t))
-    pv = k*np.exp(-r*t)
+    pv = k*np.exp(-rf*t)
+    s_term = s_t * math.exp(-q*t)
 
-    c = norm.cdf(d1) * s_t - norm.cdf(d2) * pv
-    p = -1 * norm.cdf(-d1) * s_t  + norm.cdf(-d2) * pv
+    c = norm.cdf(d1) * s_term - norm.cdf(d2) * pv
+    p = -1 * norm.cdf(-d1) * s_term  + norm.cdf(-d2) * pv
     
     return c, p, d1, d2
 
@@ -194,7 +177,7 @@ def main(sim_cnt, r, rf, T, s_t, k, sigma, tpd):
     
     days = int(260 * tpd)
     
-    v_c, v_p, cf_total, pnl_total, po_c, po_p, shares, s_T, op_price, cash_avg = run_sim(T, sim_cnt, r, rf, sigma , s_t, days, k) 
+    v_c, v_p, cf_total, pnl_total, po_c, po_p, shares, s_T, op_price, cash_avg = run_sim(T, sim_cnt, r, rf, sigma , s_t, days, k,q) 
     pv_c= get_pv_sim(v_c ,rf, T)
     pv_p= get_pv_sim(v_p ,rf, T)
 
@@ -207,7 +190,7 @@ def main(sim_cnt, r, rf, T, s_t, k, sigma, tpd):
     #print('Call Sum: ', shares[0][0]*s_T + po_c + pnl_total[0]+cf_total[0] + pv_c)
     #print('Put Sum:  ', shares[0][1]*s_T + po_p + pnl_total[1]+cf_total[1] + pv_p )
 
-    c, p, d1, d2 = black_scholes_form(T, k, s_t, rf, sigma)
+    c, p, d1, d2 = black_scholes_form(T, k, s_t, rf, sigma,q)
     
     print('                     call                 put')
     print('    black-scholes: ', c,  ';', p)
@@ -227,5 +210,6 @@ if __name__ == '__main__':
     strike_price = args.strike_price
     sigma = args.sigma
     tpd = args.tpd
+    q = args.q
     main(sim_cnt, r, rf, mat,spot_price,strike_price, sigma, tpd)
     
