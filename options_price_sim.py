@@ -29,16 +29,22 @@ Function that calculates 'the greeks'
 If only_delta=True returns: (delta_c), (delta_p)
 Else returns: (delta_c, gamma, vega, theta_c),(delta_p, gamma, vega, theta_p)
 '''
-def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False):
+def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False, only_vega=False):
     cdf_d1 = norm.cdf(d1)
+    n_prime_d1 = n_prime(d1) 
+
 
     if only_delta:
         delta_c = cdf_d1 * math.exp(-q*t)
         delta_p = (delta_c-1) * math.exp(-q*t)
         return np.array([delta_c, delta_p])
 
+    elif only_vega:
+        vega = s * n_prime_d1 * math.sqrt(t) * math.exp(-q*t)
+        return vega
+
     else:
-        n_prime_d1 = n_prime(d1) 
+        #n_prime_d1 = n_prime(d1) 
         n_prime_d2 = n_prime(d2)
         cdf_d2 = norm.cdf(d2)
         neg_cdf_d2 = norm.cdf(-1*d2)
