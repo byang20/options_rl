@@ -1,7 +1,7 @@
 # options_rl
 
-##Downloading Data
+## Downloading Data
 
-##Running Simulation 
+## Running Simulation 
 
-##Calculating the Volatilities
+## Calculating the Volatilities
