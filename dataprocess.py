@@ -5,6 +5,8 @@ import csv
 import os.path
 import pickle
 from options_price_sim import black_scholes_form, get_greeks
+import matplotlib.pyplot as plt
+from matplotlib import cm
 
 #global variables
 NUM_COLS = ['strike', 'trade_volume','bid_1545','ask_1545','underlying_bid_1545','underlying_ask_1545']
@@ -17,7 +19,6 @@ TO_DROP= ['open', 'high', 'low', 'close', 'bid_size_1545', 'ask_size_1545', 'bid
 '''
 Function that returns the data frame 
 '''
-
 def clean_data(filename):
     cwd = os.getcwd()
     pkl_name = os.path.join( cwd,  filename[:-4] + ".pkl")
@@ -58,9 +59,9 @@ def get_df(filename):
 
 
 '''
-Function that calculates implied volatility 
+Function that calculates local volatility 
 '''
-def calc_sig(otype, oprice, k, rf, s_t, q, t, delta, start_sig = .15):
+def calc__loc_sig(otype, oprice, k, rf, s_t, q, t, delta, start_sig = .15):
     price_guess = 0
     sig_guess = start_sig
     max_itr_cnt = 70
@@ -76,6 +77,12 @@ def calc_sig(otype, oprice, k, rf, s_t, q, t, delta, start_sig = .15):
     #print(price_guess)
     return sig_guess
 
+
+def calc_imp_vol(df, k, rf):
+
+    #need to calculate dv/dt, dv/dk
+    return 1
+    
 def calc_delta(otype,k, rf,s_t, q, t, sig_guess):
     rf = rf/260
     try:
@@ -85,24 +92,47 @@ def calc_delta(otype,k, rf,s_t, q, t, sig_guess):
         exit()
     delta = get_greeks(t, k, rf, sig_guess, d1, d2, s_t, q, only_delta=True)[0] if otype == 'C' else get_greeks(t, k, rf, sig_guess, d1, d2, s_t, q, only_delta=True)[1]
     return delta
-    
+
 
 def add_sig_to_df(df):
     q=0 #dividend
     rf = .0016
 
     df['delta'] = df.apply(lambda  row : calc_delta(row['option_type'], row['strike'], rf, row['stock_price'], q, row['time_to_mat'], row['sigma_start']),axis=1)
-    df['imp_sig'] = df.apply(lambda  row : calc_sig(row['option_type'], row['option_price'], row['strike'], rf, row['stock_price'], q, row['time_to_mat'], row['delta'], start_sig = row['sigma_start']),axis=1)
+    df['imp_sig'] = df.apply(lambda  row : calc_loc_sig(row['option_type'], row['option_price'], row['strike'], rf, row['stock_price'], q, row['time_to_mat'], row['delta'], start_sig = row['sigma_start']),axis=1)
     return df
 
+def graph(filename):
+    df = pd.read_csv(filename, delimiter=',')
+    stock = 'SPY'
+    df = df.loc[df['underlying_symbol'] == stock] #only get certain stock
+    df = df.drop(df[df['sigma_start']==df['imp_sig']].index) #drop rows where sigma didn't move
+    time = df['time_to_mat'].to_numpy()
+    strike = df['strike'].to_numpy()
+    sig = df['imp_sig'].to_numpy()
+    time, strike = np.meshgrid(time,strike)
+   
+    #data = np.stack((time,strike,sig), axis=0)
+    #np.savetxt("graph_data.csv", data, delimiter=",")
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+    graph = ax.plot_surface(time, strike, sig, cmap=cm.coolwarm,linewidth=0)
+    fig.colorbar(graph, shrink=0.5, aspect=5)
+    plt.savefig('graph.png')
+    #ValueError: Argument Z must be 2-dimensional.
+
+
+    
 
 def main(filename='small_data.csv'):
     #clean_data('UnderlyingOptionsEODQuotes_2020-07-24.csv')
 
-    df = get_df(filename)
+    #df = get_df(filename)
 
-    df = add_sig_to_df(df)
-    df.to_csv('imp_vol.csv',index=False)
+    #df = add_sig_to_df(df)
+    #df.to_csv('imp_vol.csv',index=False)
+
+    graph('imp_vol.csv')
     
 
 
