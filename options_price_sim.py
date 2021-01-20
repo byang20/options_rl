@@ -82,20 +82,20 @@ def sim(t, r, rf, sigma, start,days, k, q):
 
     mu, s = 0, 1
     sigma_daily = sigma / math.sqrt(days)
-    rands = np.random.normal(mu, s, t*days)
+    rands = np.random.normal(mu, s, int(t*days))
 
-    st_s = np.zeros(t*days)
+    st_s = np.zeros(int(t*days))
     st_s[0] = start
 
-    deltas = np.zeros((t*days,2))
+    deltas = np.zeros((int(t*days),2))
     d1 = 1/(sigma_daily*math.sqrt(t)) * (math.log(start/k) + ((r-q)/days + (sigma_daily**2)/2) * t)
     d2 = d1 - sigma_daily*(math.sqrt(t))
     deltas[0] = get_greeks(t, k, r/days, sigma_daily, d1, d2, start, q, only_delta=True)
 
-    cf = np.zeros((t*days,2))
+    cf = np.zeros((int(t*days),2))
     pnl, cash, net = np.zeros(2), np.zeros(2), np.zeros(2)
 
-    for i in range(1,days*t):
+    for i in range(1,int(days*t)):
         st_s[i] = st_s[i-1] + st_s[i-1] * (r-q) / days + st_s[i-1] * sigma_daily * rands[i-1]
         term_t = t-i/days
         d1 = 1/(sigma_daily*math.sqrt(term_t)) * (math.log(st_s[i]/k) + ((r-q)/days + (sigma_daily**2)/2) * term_t)
@@ -129,7 +129,7 @@ def sim(t, r, rf, sigma, start,days, k, q):
 
     stat = np.array([round(st_s[-1],2), round(net[0],2), round(net[1],2), round(c,2) ,round(p,2)]) 
 
-    return st_s, np.sum(cf,axis=0), pnl, deltas[-1, :], cash, net, stat
+    return st_s, np.sum(cf,axis=0), pnl, deltas[-1, :], cash, net, stat, rands
 
 def run_sim(t, runs, r, rf, sigma, start,days, K,q):
     prices = np.zeros((runs,t*days))
@@ -138,7 +138,7 @@ def run_sim(t, runs, r, rf, sigma, start,days, K,q):
 
     
     for i in range(runs):
-        prices[i,:],cf[i,:], pnl[i,:], shares[i,:], cash[i:], net, stats[i,:]= sim(t, r, rf, sigma, start, days, K, q)
+        prices[i,:],cf[i,:], pnl[i,:], shares[i,:], cash[i:], net, stats[i,:], _= sim(t, r, rf, sigma, start, days, K, q)
 
     #header = '{:>7s}{:>7s}{:>7s}{:>7s}{:>7s}'.format('s_T', 'net_c','net_p', 'bs_c', 'bs_p')
     cp = os.path.abspath(os.getcwd())
