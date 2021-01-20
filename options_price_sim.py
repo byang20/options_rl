@@ -28,6 +28,7 @@ def n_prime(x):
 Function that calculates 'the greeks'
 If only_delta=True returns: (delta_c), (delta_p)
 Else returns: (delta_c, gamma, vega, theta_c),(delta_p, gamma, vega, theta_p)
+q - dividend yield
 '''
 def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False, only_vega=False):
     cdf_d1 = norm.cdf(d1)
@@ -71,10 +72,11 @@ def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False, only_vega=False):
 
 '''
 Function that simulates one realized path
-t - time to maturity
+t - time to maturity in years
 r - stock return drift
 v - volatility
 start - start price
+q - dividend yield
 '''
 def sim(t, r, rf, sigma, start,days, k, q):
 

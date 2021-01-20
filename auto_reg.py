@@ -31,8 +31,7 @@ def lin_reg(x,y, plot=False):
     return m, b, errors
 
 '''
-Function that solves for the alphas in 
-error_t = alpha_1 *  + alpha_2 * + e
+Function that solves for the alphas in: error_t = alpha_1 *  + alpha_2 * + e
 And shows the plot of the predicted values verses the true values
 '''
 def solve_alphas(errors, errors_test, lag=2, r=1):
