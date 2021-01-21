@@ -91,7 +91,7 @@ def rolling_win_train(data, window_size=50, lag = 2):
         print('Alpha_' + str(i) + ': ', alphas[i] )
     print('MSE: ', mse/len(predictions))
     print('MSE AVG: ', (mse/len(predictions))**.5)
-    
+    m
     fig, (ax1, ax2) = plt.subplots(2)
     t = np.arange(0,len(data), 1)
 
