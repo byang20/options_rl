@@ -11,7 +11,7 @@ Fill in the file as such
     "PATH_TO_ORDER_FILES" : [order id]
 }
 ```
-Then run `python import_data.py` to download and extract the data.  Zip files will be in a folder called 'data/' and extracted csv files will be in a folder called 'extracted/'.
+Then, run `python import_data.py` to download and extract the data.  Zip files will be in a folder called 'data/', and extracted csv files will be in a folder called 'extracted/'.
 
 ## Running Simulation 
 
