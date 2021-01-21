@@ -6,6 +6,8 @@ import pickle
 from options_price_sim import sim, get_greeks, black_scholes_form
 import random
 
+FILE_NAME = 'sim_paths.npy'
+DAYS_PER_YEAR = 260
 
 ##Activation Functions and Their Derivatives
 def leaky_relu(inputs, leaky_relu_param):
@@ -27,14 +29,14 @@ def sigmoid_grad(inputs):
 class RNN:
 
     alpha_1 = 1
-    alpha_2 = .001
-    beta = 0.001
+    alpha_2 = 1
+    beta = 0.01
     leaky_relu_param = 0
     def __init__(self, input_dim=2, output_size=1, leaky_relu_param=.1):
         #init params to random number between 0 and 1
-        alpha_1 = 1
-        alpha_2 = .001
-        beta = .001
+        alpha_1 = random.random()
+        alpha_2 = random.random()
+        beta = random.random()
         if(alpha_1==0): alpha_1=0.5
         if(alpha_2==0): alpha_2=0.5
         if(beta==0): beta=0.5
@@ -45,8 +47,10 @@ class RNN:
         a, b  = inputs.shape
         #first delta col holds nothing, 0, remove at the end
         delta_ts = np.zeros((a, b+1))
-        c, p, d1, d2 = black_scholes_form(b/260, k, s_t, rf, sigma, q)
+        c, _, d1, d2 = black_scholes_form(b/260, k, s_t, rf, sigma, q)
+        #print('Call Price: ', c)
         deltas = get_greeks(b/260, k, rf, sigma, d1, d2, s_t, q, only_delta=True)
+        #print(deltas)
         delta_ts[:,0] = deltas[0]
         hidden = np.zeros((a,b))
         for i in range (b):
@@ -60,7 +64,7 @@ class RNN:
     
 
     '''
-        inputs: stock price values; each row is a path and each col is a time step
+        inputs: stock return values; each row is a path and each col is a time step
         hidden: the output of delta_t = alpha1 * delta_{t-1} + alpha2 * S_t + beta
         deltas: goes from the init delta(defined in class) to the final delta(RNN output);
                 are T+1 deltas for each path
@@ -69,33 +73,30 @@ class RNN:
         lr: learning rate 
         
     '''
-    def backward(self, inputs, hidden, deltas, sigma, rv, lr=.001, ):
-        a,b = inputs.shape
-        pi_wrt_delta = inputs * sigma * rv #going from delta 1, ... delta T
+    def backward(self, stock_returns, stock_prices, hidden, deltas, sigma, rv, lr):
+        a,b = stock_returns.shape
+        pi_wrt_delta = stock_prices * sigma * rv #going from delta 1, ... delta T
         rels_wrt_h = sigmoid_grad(hidden)
         deltas_wrt_alpha_1 = np.zeros((a,b+1))
         pis_wrt_alpha_1 = np.zeros((a,b))
 
         #alpha_1 start backwards
         for i in range(0, b):
-            #fill
             deltas_wrt_alpha_1[:,i+1] = (deltas[:,i] + self.alpha_1*deltas_wrt_alpha_1[:,i])*rels_wrt_h[:,i]
             pis_wrt_alpha_1[:,i] = pi_wrt_delta[:, i] * rels_wrt_h[:, i] * deltas_wrt_alpha_1[:, i]
 
         #alpha_2 
-        pis_wrt_alpha_2 = pi_wrt_delta * rels_wrt_h  * inputs
+        pis_wrt_alpha_2 = pi_wrt_delta * rels_wrt_h  * stock_returns
         
         #beta
-        pis_wrt_beta = np.ones((a,b))
+        pis_wrt_beta =  pi_wrt_delta * rels_wrt_h  
 
-
-        print('Grad Sums: ', np.mean(pis_wrt_alpha_1), np.mean(pis_wrt_alpha_2), np.sum(pis_wrt_beta))
-        #print(pis_wrt_alpha_1)
+        #print('Grad Sums: ', np.mean(pis_wrt_alpha_1), np.mean(pis_wrt_alpha_2), np.sum(pis_wrt_beta))
 
         #adjust params
         self.alpha_1 += lr * np.mean(pis_wrt_alpha_1)
         self.alpha_2 += lr * np.mean(pis_wrt_alpha_2)
-        #self.beta    = self.
+        self.beta    += lr * np.mean(pis_wrt_beta)
 
         return pis_wrt_alpha_1, pis_wrt_alpha_2, pis_wrt_beta
 
@@ -121,7 +122,7 @@ Function that trains one epoch
     stock_prices: stock price values; each row is a path and each col is a time step
     batch_size: represents the number of samples to use per forward pass
 '''
-def train_epoch(model, stock_prices, sigma, rv, k,s_t,rf, batch_size=100):
+def train_epoch(model, stock_returns, stock_prices, sigma, rv, k,s_t,rf, lr =.1, batch_size=20, ):
     
     a, b = stock_prices.shape
     deltas = np.zeros((a,b+1))
@@ -130,52 +131,53 @@ def train_epoch(model, stock_prices, sigma, rv, k,s_t,rf, batch_size=100):
         if(i*batch_size>=a): break
         end_index = (i+1)*batch_size if (i+1)*batch_size < a else a
         
-        #ASSIGN ALL VARIABLES
-
-        curr_delta_ts, curr_hidden = model.forward(stock_prices[i*batch_size:end_index],k,s_t,rf,sigma)
+        curr_delta_ts, curr_hidden = model.forward(stock_returns[i*batch_size:end_index],k,s_t,rf,sigma)
         deltas[i*batch_size:end_index, :] = curr_delta_ts
 
         #run backward
-        model.backward(stock_prices[i*batch_size:end_index], curr_hidden, curr_delta_ts, sigma, rv[i*batch_size:end_index], lr=.2, )
+        model.backward(stock_returns[i*batch_size:end_index], stock_prices[i*batch_size:end_index], curr_hidden, curr_delta_ts, sigma, rv[i*batch_size:end_index], lr )
     return deltas
 
 
-def evaluation(model, sigma, stock_prices, rv, k, s_t, rf):
-    print('\n---Evaluating Model---')
-    a, b = stock_prices.shape
+def evaluation(model, sigma, stock_prices, stock_returns, rv, k, s_t, rf):
+    print('\n---Evaluating the Model---')
+    a, b = stock_returns.shape
     print('Time Steps:', b, "\nSim Count: ", a )
-    print(model.alpha_1, model.alpha_2, model.beta)
+    print('Model Param Values (a1,a2,b): ', model.alpha_1, model.alpha_2, model.beta)
     #ASSIGN VARIABELS
-    delta_ts, _ = model.forward(stock_prices, k, s_t, rf, sigma)
+    delta_ts, _ = model.forward(stock_returns, k, s_t, rf, sigma)
 
-    port_values = delta_ts[:,1:]*stock_prices * rv * sigma
-    pnl_at_end = np.sum(port_values[:,1:] - port_values[:, :-1], axis = 1)
-    print('\nAverage Final Values:')
-    print(np.mean(port_values[:,-1]))
-    print('Average Final PnL')
+    hedge_pnl = delta_ts[:,1:]*stock_prices * rv * sigma
+    pnl_at_end = np.sum(hedge_pnl, axis = 1)
+    
+    print('Average PnL')
     print(np.mean(pnl_at_end))
     
     variance = np.var(delta_ts[:,1:], axis=0)
 
-    print('Variance Per Time Step:')
+    print('\nVariance Per Time Step:')
     print(variance)
     pass
 
-def train_and_evaluate(number_of_epochs, model, training_data, eval_data, sigma, rv, k, s_t, rf, batch_size=100):
+def train_and_evaluate(number_of_epochs, model, prices, training_data, eval_data, sigma, rv, k, s_t, rf, batch_size=100):
     a,b = training_data.shape
     c,d = eval_data.shape
+    lr = 1
+    
 
-    print('---Beginning Training---')
+    print('---Training the Model---')
     for i in range (number_of_epochs):
-        deltas_training = train_epoch(model, training_data, sigma, rv, k, s_t, rf, batch_size=batch_size)
-        port_values = deltas_training[:,1:]*training_data * rv * sigma
-        pnl = np.sum(port_values[:,1:] - port_values[:,:-1], axis=1)
-        pnl = np.mean(pnl)
-        stats_string =  ':: Average PnL: ' + np.array2string(pnl)
-        print('Epoch ' + str(i+1) + '/' + str(number_of_epochs) + stats_string )
+        lr_t = lr*(1-.1)**i
+        deltas_training = train_epoch(model, training_data, prices, sigma, rv, k, s_t, rf, lr_t, batch_size=batch_size)
+        h_pnl_t = deltas_training[:,1:]*prices * rv * sigma
+        h_pnl = np.sum(h_pnl_t, axis=1)
+        h_pnl_avg = np.mean(h_pnl)
+        stats_string =  '\tAverage PnL: ' + np.array2string(h_pnl_avg)
+        lr_string = '\tlr: ' + str(lr_t)
+        print('Epoch ' + str(i+1) + '/' + str(number_of_epochs) + stats_string  + lr_string )
     
     #evaluate the model
-    evaluation(model, sigma, eval_data, rv, k, s_t, rf)
+    evaluation(model, sigma, prices, eval_data, rv, k, s_t, rf)
 
     pass
 
@@ -183,21 +185,29 @@ def train_and_evaluate(number_of_epochs, model, training_data, eval_data, sigma,
 def generate_data_sim(sim_count, start_price, steps, strike, sigma, drift, rf, days_per_year = 260, q = 0):
 
     stock_prices = np.zeros((sim_count, int(steps*days_per_year)))
+    stock_returns = np.zeros((sim_count, int(steps*days_per_year)))
     rv = np.zeros((sim_count, int(steps*days_per_year)))
     pnl_true = np.zeros(sim_count)
+    call_price = 0
 
     for i in range(sim_count):
-        st_s, _, pnl, _, _, _, _, rands = sim(steps, drift, rf, sigma, start_price, days_per_year, strike, q)
+        st_s, _, pnl, _, _, _, s, rands = sim(steps, drift, rf, sigma, start_price, days_per_year, strike, q)
         stock_prices[i,:] = st_s
         pnl_true[i] = pnl[0]
         rv[i] = rands
-  
-    
-    return stock_prices, rv, pnl_true
+        call_price = s[3]
+
+
+    stock_returns[:,1:] = (stock_prices[:,1:]-stock_prices[:,:-1])/stock_prices[:,:-1]
+
+    #np.save(STOCK_RETURNS, stock_returns)
+    #np.save(STOCK_PRICES , stock_prices)
+    #np.save(RV, rv)
+
+    return stock_prices, rv, pnl_true, stock_returns, call_price
 
 
 def main():
-
 
     sim_count = 1000
     start_price = 100
@@ -208,13 +218,14 @@ def main():
     sigma = .1
 
     rnn = RNN()
-    epochs = 20
+    epochs = 50
 
-    stock_prices, rv, pnl = generate_data_sim(sim_count, start_price, steps, strike, sigma, drift, rf )
+    stock_prices, rv, pnl, stock_returns, call_price = generate_data_sim(sim_count, start_price, steps, strike, sigma, drift, rf )
     
-    train_and_evaluate(epochs, rnn, stock_prices, stock_prices, sigma, rv, strike, start_price, rf, batch_size=20)
+    #train_and_evaluate(epochs, rnn, stock_prices, stock_prices, sigma, rv, strike, start_price, rf, batch_size=20)
+    train_and_evaluate(epochs, rnn, stock_prices, stock_returns, stock_returns, sigma, rv, strike, start_price, rf, batch_size=200)
 
-    print('Average True PnL:\n', np.mean(pnl))
+    print('Call Price: ', call_price)
 
     
 
