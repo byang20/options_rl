@@ -6,9 +6,6 @@ import pickle
 from options_price_sim import sim, get_greeks, black_scholes_form
 import random
 
-FILE_NAME = 'sim_paths.npy'
-DAYS_PER_YEAR = 260
-
 ##Activation Functions and Their Derivatives
 def leaky_relu(inputs, leaky_relu_param):
     return np.maximum(inputs*leaky_relu_param,inputs)
@@ -26,6 +23,18 @@ def sigmoid_grad(inputs):
     return sigmoid(inputs)*(1-sigmoid(inputs))
 
 
+
+'''
+RNN class
+    Params: alpha_1 - float
+            alpha_2 - float
+            beta - float
+    Functions: init
+               forward - does a foward pass
+               backwad - does a backward pass
+               load_model - loads in model params from file
+               save_model - saves model params into file
+'''
 class RNN:
 
     alpha_1 = 1
@@ -43,16 +52,36 @@ class RNN:
         leaky_relu_param = self.leaky_relu_param
 
     #inputs will be an array (a x b) representing the b S_t values for the a different paths
+    '''
+        inputs: stock return values; each row is a path and each col is a time step
+        k: strike price
+        s_t: starting pricing of the stock
+        rf: risk free rate
+        sigma: stock volatility
+        q: dividend yield
+
+        k, s_t, rf, sigma, and q are used to calculate the black scholes delta, which is the detla 
+        used for the first rnn forward pass. 
+
+        Returns: 
+            delta_ts: the deltas calculated at each time step is of size (a,b+1) where the a is the 
+            number of simulations (batchsize) and b is the number of time steps + 1 because of the 
+            initial delta (bs delta)
+            hidden: the ouput from (a1*delta + a2*st + b) at each time step
+    '''
     def forward(self, inputs, k, s_t, rf, sigma, q = 0.0):
         a, b  = inputs.shape
-        #first delta col holds nothing, 0, remove at the end
+
         delta_ts = np.zeros((a, b+1))
+
+        #first delta, delta_{0-1} is found using the black scholes delta
         c, _, d1, d2 = black_scholes_form(b/260, k, s_t, rf, sigma, q)
-        #print('Call Price: ', c)
         deltas = get_greeks(b/260, k, rf, sigma, d1, d2, s_t, q, only_delta=True)
-        #print(deltas)
         delta_ts[:,0] = deltas[0]
+
         hidden = np.zeros((a,b))
+
+        #forward passes through the rnn for all time steps
         for i in range (b):
             delta_prev = delta_ts[:,i]
             st_s = inputs[:,i]
@@ -61,17 +90,15 @@ class RNN:
             delta_ts[:, i+1] = activation
             hidden[:,i] = transform
         return delta_ts, hidden
-    
 
     '''
         inputs: stock return values; each row is a path and each col is a time step
         hidden: the output of delta_t = alpha1 * delta_{t-1} + alpha2 * S_t + beta
-        deltas: goes from the init delta(defined in class) to the final delta(RNN output);
-                are T+1 deltas for each path
+        deltas: goes from the init delta(bs delta) to the final delta(RNN output); are T+1 deltas 
+                for each path
         sigma: either constant or matrix the size of inputs
         rv: random variable that represents X_t in S_{t+1} = S_t * drift + S_t * sigma * X_t
         lr: learning rate 
-        
     '''
     def backward(self, stock_returns, stock_prices, hidden, deltas, sigma, rv, lr):
         a,b = stock_returns.shape
@@ -119,8 +146,18 @@ class RNN:
 
 '''
 Function that trains one epoch
+    stock_returns: daily % change in stock prices
     stock_prices: stock price values; each row is a path and each col is a time step
     batch_size: represents the number of samples to use per forward pass
+    sigma: volatility of the stock
+    rv: random variable, the random steps that the stock takes each day
+    k: strike price
+    s_t: current stock price
+    rf: risk free rate
+    lr: learning rate
+    
+    returns
+        deltas: deltas at each time step 
 '''
 def train_epoch(model, stock_returns, stock_prices, sigma, rv, k,s_t,rf, lr =.1, batch_size=20, ):
     
@@ -138,7 +175,17 @@ def train_epoch(model, stock_returns, stock_prices, sigma, rv, k,s_t,rf, lr =.1,
         model.backward(stock_returns[i*batch_size:end_index], stock_prices[i*batch_size:end_index], curr_hidden, curr_delta_ts, sigma, rv[i*batch_size:end_index], lr )
     return deltas
 
+'''
+This function runs a forward pass through the network without making adjustments
 
+    sigma: volatility of the stock
+    stock_returns: daily % change in stock prices    
+    stock_prices: stock price values; each row is a path and each col is a time step
+    rv: random variable, the random steps that the stock takes each day
+    k: strike price
+    s_t: current stock price
+    rf: risk free rate
+'''
 def evaluation(model, sigma, stock_prices, stock_returns, rv, k, s_t, rf):
     print('\n---Evaluating the Model---')
     a, b = stock_returns.shape
@@ -159,19 +206,37 @@ def evaluation(model, sigma, stock_prices, stock_returns, rv, k, s_t, rf):
     print(variance)
     pass
 
+'''
+    number_of_epochs- int
+    model- your RNN model
+    prices- stock prices
+    training_data / eval_data: data to use in training and in eval, should be the stock returns
+    sigma: stock volatility
+    rv: random variavles used in the stock price generation
+    k: strike price
+    s_t: starting stock price
+    rf: risk free rate
+    batch_size: batch size to use during training
+'''
 def train_and_evaluate(number_of_epochs, model, prices, training_data, eval_data, sigma, rv, k, s_t, rf, batch_size=100):
     a,b = training_data.shape
     c,d = eval_data.shape
     lr = 1
     
-
     print('---Training the Model---')
     for i in range (number_of_epochs):
+        
+        #calculating lr decay
         lr_t = lr*(1-.1)**i
+        
         deltas_training = train_epoch(model, training_data, prices, sigma, rv, k, s_t, rf, lr_t, batch_size=batch_size)
+        
+        #calculating hedge pnl
         h_pnl_t = deltas_training[:,1:]*prices * rv * sigma
         h_pnl = np.sum(h_pnl_t, axis=1)
         h_pnl_avg = np.mean(h_pnl)
+        
+        #printing stats about last update
         stats_string =  '\tAverage PnL: ' + np.array2string(h_pnl_avg)
         lr_string = '\tlr: ' + str(lr_t)
         print('Epoch ' + str(i+1) + '/' + str(number_of_epochs) + stats_string  + lr_string )
@@ -181,7 +246,20 @@ def train_and_evaluate(number_of_epochs, model, prices, training_data, eval_data
 
     pass
 
+'''
+This function generates a simualated stock movement according to the given parameters
 
+    sim_count: number of simulations(paths)
+    start_price: starting price of stock
+    steps: number of time steps to take in each path
+    strike: strike price of option
+    sigma: volatility of stock
+    drift: drift of stock
+    rf: risk-free rate
+    q: dividend yield
+
+    returns the simulated stock prices, random variable for each day, daily % returns, and price of the option
+'''
 def generate_data_sim(sim_count, start_price, steps, strike, sigma, drift, rf, days_per_year = 260, q = 0):
 
     stock_prices = np.zeros((sim_count, int(steps*days_per_year)))
@@ -197,9 +275,9 @@ def generate_data_sim(sim_count, start_price, steps, strike, sigma, drift, rf, d
         rv[i] = rands
         call_price = s[3]
 
-
     stock_returns[:,1:] = (stock_prices[:,1:]-stock_prices[:,:-1])/stock_prices[:,:-1]
 
+    #TODO save the simulation values
     #np.save(STOCK_RETURNS, stock_returns)
     #np.save(STOCK_PRICES , stock_prices)
     #np.save(RV, rv)
@@ -221,13 +299,11 @@ def main():
     epochs = 50
 
     stock_prices, rv, pnl, stock_returns, call_price = generate_data_sim(sim_count, start_price, steps, strike, sigma, drift, rf )
-    
-    #train_and_evaluate(epochs, rnn, stock_prices, stock_prices, sigma, rv, strike, start_price, rf, batch_size=20)
+
     train_and_evaluate(epochs, rnn, stock_prices, stock_returns, stock_returns, sigma, rv, strike, start_price, rf, batch_size=200)
 
     print('Call Price: ', call_price)
 
-    
 
 if __name__ == "__main__":
     main()

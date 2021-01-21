@@ -20,20 +20,29 @@ def passed_arguments():
     args = parser.parse_args()
     return args
 
-
+'''
+Function to calculate derivative of the normal distribution
+'''
 def n_prime(x):
     return 1/math.sqrt(2*math.pi) * math.exp((-x**2)/2)
 
 '''
 Function that calculates 'the greeks'
-If only_delta=True returns: (delta_c), (delta_p)
-Else returns: (delta_c, gamma, vega, theta_c),(delta_p, gamma, vega, theta_p)
+
+t - time in years to maturity
+k - strike price
+r - drift
+sigma - volatility
+d1, d2 - as in black_scholes equation
+s - stock price
 q - dividend yield
+only_delta, only_vega =True: set True to only return delta or vega, NOTE: only one can be True
+
+returns: (delta_c, gamma, vega, theta_c),(delta_p, gamma, vega, theta_p)
 '''
 def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False, only_vega=False):
     cdf_d1 = norm.cdf(d1)
     n_prime_d1 = n_prime(d1) 
-
 
     if only_delta:
         delta_c = cdf_d1 * math.exp(-q*t)
@@ -45,7 +54,6 @@ def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False, only_vega=False):
         return vega
 
     else:
-        #n_prime_d1 = n_prime(d1) 
         n_prime_d2 = n_prime(d2)
         cdf_d2 = norm.cdf(d2)
         neg_cdf_d2 = norm.cdf(-1*d2)
@@ -61,9 +69,6 @@ def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False, only_vega=False):
         vega = s * n_prime_d1 * math.sqrt(t) * math.exp(-q*t)
 
         #theta calculations
-        #theta_c = -1*((s*n_prime_d1) * sigma)/(2*(t**.5)) - r*k*math.exp(-r * t) * cdf_d2 
-        #theta_p = (-1*((s*n_prime_d1) * sigma)/(2*(t**.5)) + r*k*math.exp(-r * t) * neg_cdf_d2) 
-
         theta_c = -1*(s * n_prime_d1 * sigma * math.exp(-q*t))/(2*(t**.5)) - r*k*math.exp(-r * t) * cdf_d2 + q*s*math.exp(-q*t)*cdf_d1
         theta_p = -1*(s * n_prime_d1 * sigma * math.exp(-q*t))/(2*(t**.5)) + r*k*math.exp(-r * t) * neg_cdf_d2 - q*s*math.exp(-q*t)*(1-cdf_d1)
 
@@ -71,19 +76,36 @@ def get_greeks(t, k, r, sigma, d1, d2, s, q, only_delta=False, only_vega=False):
         return (delta_c, gamma, vega, theta_c),(delta_p, gamma, vega, theta_p)
 
 '''
-Function that simulates one realized path
-t - time to maturity in years
-r - stock return drift
-v - volatility
-start - start price
-q - dividend yield
+Function that simulates one realized path of stock movement
+
+Inputs: 
+    t - time to maturity in years
+    r - stock return drift
+    rf - risk free rate
+    sigma - volatility
+    start - start price
+    days - days in  year
+    k - strike price
+    q - dividend yield
+
+Returns: 
+    st_s - stock prices
+    np.sum(cf,axis=0) - cash flow for call and put
+    pnl - total pnl for call and put
+    deltas[-1,:] - deltas for call and put
+    cash - ending cash adjusting for time value of money
+    net - gain?
+    stat - (ending stock price, net call, net put, call price, put price ) 
+    rands - rvs
 '''
 def sim(t, r, rf, sigma, start,days, k, q):
 
+    #calculating random variables ot be used in stock price generation
     mu, s = 0, 1
     sigma_daily = sigma / math.sqrt(days)
     rands = np.random.normal(mu, s, int(t*days))
 
+    #stock prices 
     st_s = np.zeros(int(t*days))
     st_s[0] = start
 
@@ -91,10 +113,10 @@ def sim(t, r, rf, sigma, start,days, k, q):
     d1 = 1/(sigma_daily*math.sqrt(t)) * (math.log(start/k) + ((r-q)/days + (sigma_daily**2)/2) * t)
     d2 = d1 - sigma_daily*(math.sqrt(t))
     deltas[0] = get_greeks(t, k, r/days, sigma_daily, d1, d2, start, q, only_delta=True)
-
     cf = np.zeros((int(t*days),2))
     pnl, cash, net = np.zeros(2), np.zeros(2), np.zeros(2)
 
+    #looping through each time period and calculating the stock prices
     for i in range(1,int(days*t)):
         st_s[i] = st_s[i-1] + st_s[i-1] * (r-q) / days + st_s[i-1] * sigma_daily * rands[i-1]
         term_t = t-i/days
@@ -131,6 +153,29 @@ def sim(t, r, rf, sigma, start,days, k, q):
 
     return st_s, np.sum(cf,axis=0), pnl, deltas[-1, :], cash, net, stat, rands
 
+'''
+Function that runs a series of simulations of stock movements
+t: time span for each path, in years
+runs: number of simulations(paths) to simulate
+r: drift
+rf: risk free
+sigma: volatility
+start: start price
+days: days in a year
+K: strike price
+q: dividend yield
+
+Returns 
+    value_c: average value
+    value_p: average value
+    cf_total: cash flows avg
+    pnl_total: pnl total avg
+    po_c: pay off  all
+    po_p: pay off all
+    shapes: number of shares at the end
+    prices[:.-1]: price at the end
+    cash_avg: average cash
+'''
 def run_sim(t, runs, r, rf, sigma, start,days, K,q):
     prices = np.zeros((runs,t*days))
     cf, pnl, shares, cash, net = np.zeros((runs,2)), np.zeros((runs,2)), np.zeros((runs,2)), np.zeros((runs,2)), np.zeros((runs,2))
@@ -165,6 +210,8 @@ k - strice price
 s_t = spot price
 r - risk free rate
 sigma - volatilities over t
+
+returns call price, put price, and the d1 and d2 expressions
 '''
 def black_scholes_form(t, k, s_t, rf, sigma, q):
 
@@ -189,7 +236,6 @@ def main(sim_cnt, r, rf, T, s_t, k, sigma, tpd):
     pv_c= get_pv_sim(v_c ,rf, T)
     pv_p= get_pv_sim(v_p ,rf, T)
 
-    
     print('op: ', op_price)
     print('cf:  ', cf_total)
     print('cash avg: ', cash_avg)
